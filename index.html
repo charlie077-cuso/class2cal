@@ -275,6 +275,31 @@
         </div>
       </div>
 
+      <div class="card" id="reschedule-card">
+        <div class="slot-head">
+          <h3>调课 / 停课</h3>
+          <p class="muted small">有停课、放假或补课时在这里加。导出的日历会自动跳过停课日期，并把补课单独加进去；没有就留空。</p>
+        </div>
+
+        <div class="reschedule-group">
+          <div class="reschedule-title">
+            <span>停课日期（当天所有课都不排）</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-add-skip" data-testid="add-skip">+ 添加停课日期</button>
+          </div>
+          <ul class="reschedule-list" id="skip-list" data-testid="skip-list"></ul>
+          <p class="hint" id="skip-empty">没有停课日期，默认整学期按课表重复。</p>
+        </div>
+
+        <div class="reschedule-group">
+          <div class="reschedule-title">
+            <span>补课 / 临时调课</span>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-add-extra" data-testid="add-extra">+ 添加补课</button>
+          </div>
+          <ul class="reschedule-list" id="extra-list" data-testid="extra-list"></ul>
+          <p class="hint" id="extra-empty">没有补课，默认只按课表重复。</p>
+        </div>
+      </div>
+
       <div class="card export-card">
         <div class="export-summary" id="export-summary">正在统计…</div>
         <button type="button" class="btn btn-primary btn-xl" id="btn-export" data-testid="export-ics">生成并下载 .ics 文件</button>

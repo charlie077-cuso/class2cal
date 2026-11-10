@@ -40,7 +40,9 @@
       timeZone: 'Asia/Shanghai',
       reminderMinutes: 10,
       mode: 'recurring',
-      calendarName: '课程表'
+      calendarName: '课程表',
+      skipDates: [],
+      extraEvents: []
     }
   };
 
@@ -784,6 +786,135 @@
 
   /* ---------------- 步骤 4：导出 ---------------- */
 
+  /* ---------------- 步骤 4：调课 / 停课 ---------------- */
+
+  function validSkipDates() {
+    return (state.options.skipDates || []).filter(function (d) { return /^\d{4}-\d{2}-\d{2}$/.test(String(d || '')); });
+  }
+
+  function validExtraEvents() {
+    return (state.options.extraEvents || []).filter(function (ev) {
+      return ev && /^\d{4}-\d{2}-\d{2}$/.test(String(ev.date || '')) && String(ev.name || '').trim();
+    });
+  }
+
+  function renderSkipList() {
+    var list = $('#skip-list');
+    if (!list) return;
+    var dates = state.options.skipDates || [];
+    list.innerHTML = dates.map(function (d, i) {
+      return '<li class="reschedule-row" data-index="' + i + '">' +
+        '<label class="mini-label">日期</label>' +
+        '<input type="date" data-field="date" value="' + esc(d) + '" data-testid="skip-date-' + i + '" aria-label="停课日期">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-remove="skip" data-testid="remove-skip-' + i + '">删除</button>' +
+        '</li>';
+    }).join('');
+    var empty = $('#skip-empty');
+    if (empty) empty.hidden = dates.length > 0;
+  }
+
+  function renderExtraList() {
+    var list = $('#extra-list');
+    if (!list) return;
+    var evs = state.options.extraEvents || [];
+    list.innerHTML = evs.map(function (ev, i) {
+      return '<li class="reschedule-row extra" data-index="' + i + '">' +
+        '<div class="extra-line extra-top">' +
+        '<input type="date" data-field="date" value="' + esc(ev.date || '') + '" data-testid="extra-date-' + i + '" aria-label="补课日期">' +
+        '<button type="button" class="btn btn-ghost btn-sm" data-remove="extra" data-testid="remove-extra-' + i + '">删除</button>' +
+        '</div>' +
+        '<div class="extra-line">' +
+        '<input type="time" data-field="start" value="' + esc(ev.start || '') + '" data-testid="extra-start-' + i + '" aria-label="开始时间">' +
+        '<span class="muted">—</span>' +
+        '<input type="time" data-field="end" value="' + esc(ev.end || '') + '" data-testid="extra-end-' + i + '" aria-label="结束时间">' +
+        '</div>' +
+        '<input type="text" data-field="name" value="' + esc(ev.name || '') + '" placeholder="课程名称，如：高等数学" data-testid="extra-name-' + i + '" aria-label="课程名称">' +
+        '<input type="text" data-field="location" value="' + esc(ev.location || '') + '" placeholder="地点（可选），如：厚德楼 404" data-testid="extra-location-' + i + '" aria-label="地点">' +
+        '</li>';
+    }).join('');
+    var empty = $('#extra-empty');
+    if (empty) empty.hidden = evs.length > 0;
+  }
+
+  function renderReschedule() {
+    renderSkipList();
+    renderExtraList();
+  }
+
+  function addSkipDate() {
+    state.options.skipDates = state.options.skipDates || [];
+    state.options.skipDates.push('');
+    renderSkipList();
+    var input = $('[data-testid="skip-date-' + (state.options.skipDates.length - 1) + '"]');
+    if (input) input.focus();
+  }
+
+  function addExtraEvent() {
+    state.options.extraEvents = state.options.extraEvents || [];
+    var lesson = +state.options.lessonMinutes || 45;
+    var intra = +state.options.breakMinutes || 0;
+    var start = state.options.firstPeriodTime || '08:00';
+    var sm = toMinutes(start);
+    var em = sm == null ? null : sm + lesson * 2 + intra;
+    state.options.extraEvents.push({
+      date: '',
+      start: start,
+      end: em == null ? '' : fmtMinutes(em),
+      name: '',
+      location: ''
+    });
+    renderExtraList();
+    var input = $('[data-testid="extra-name-' + (state.options.extraEvents.length - 1) + '"]');
+    if (input) input.focus();
+  }
+
+  function onRescheduleInput(list, e) {
+    var row = e.target.closest('[data-index]');
+    if (!row) return;
+    var index = +row.getAttribute('data-index');
+    var field = e.target.getAttribute('data-field');
+    if (!field) return;
+    var arr = list === 'skip' ? state.options.skipDates : state.options.extraEvents;
+    if (!arr || !(index >= 0 && index < arr.length)) return;
+    if (list === 'skip') arr[index] = e.target.value;
+    else arr[index][field] = e.target.value;
+    saveSettings();
+    prepareExport();
+  }
+
+  function onRescheduleRemove(list, e) {
+    var btn = e.target.closest('[data-remove]');
+    if (!btn) return;
+    var row = e.target.closest('[data-index]');
+    if (!row) return;
+    var index = +row.getAttribute('data-index');
+    var arr = list === 'skip' ? state.options.skipDates : state.options.extraEvents;
+    arr.splice(index, 1);
+    saveSettings();
+    renderReschedule();
+    prepareExport();
+  }
+
+  function bindReschedule() {
+    var addSkip = $('#btn-add-skip');
+    var addExtra = $('#btn-add-extra');
+    var skipList = $('#skip-list');
+    var extraList = $('#extra-list');
+    if (addSkip) addSkip.addEventListener('click', addSkipDate);
+    if (addExtra) addExtra.addEventListener('click', addExtraEvent);
+    if (skipList) {
+      skipList.addEventListener('change', function (e) { onRescheduleInput('skip', e); });
+      skipList.addEventListener('input', function (e) { onRescheduleInput('skip', e); });
+      skipList.addEventListener('click', function (e) { onRescheduleRemove('skip', e); });
+    }
+    if (extraList) {
+      extraList.addEventListener('input', function (e) { onRescheduleInput('extra', e); });
+      extraList.addEventListener('change', function (e) { onRescheduleInput('extra', e); });
+      extraList.addEventListener('click', function (e) { onRescheduleRemove('extra', e); });
+    }
+    renderReschedule();
+  }
+
   function buildSettings() {
     return {
       semesterStart: state.options.semesterStart,
@@ -791,6 +922,8 @@
       calendarName: state.options.calendarName || '课程表',
       reminderMinutes: +state.options.reminderMinutes || 0,
       mode: state.options.mode,
+      skipDates: validSkipDates(),
+      extraEvents: validExtraEvents(),
       now: new Date()
     };
   }
@@ -820,7 +953,8 @@
     }
     summary.innerHTML = '将生成 <b>' + res.eventCount + '</b> 个日历事件<br>' +
       '共 ' + state.courses.length + ' 门课程 · ' + state.slots.length + ' 个时段 · ' +
-      esc(state.options.calendarName || '课程表') + warnHtml;
+      esc(state.options.calendarName || '课程表') +
+      '<br>停课 ' + validSkipDates().length + ' 天 · 补课 ' + validExtraEvents().length + ' 条' + warnHtml;
     $('#export-hint').textContent = state.options.mode === 'recurring'
       ? '每周重复模式：同一门课在整个学期里是一条重复事件，日历更简洁。'
       : '单独事件模式：每次课各占一条，适合导入到不支持重复事件的旧日历。';
@@ -929,6 +1063,8 @@
       Object.keys(state.options).forEach(function (k) {
         if (o[k] !== undefined && o[k] !== null && o[k] !== '') state.options[k] = o[k];
       });
+      if (!Array.isArray(state.options.skipDates)) state.options.skipDates = [];
+      if (!Array.isArray(state.options.extraEvents)) state.options.extraEvents = [];
     } catch (e) {}
   }
 
@@ -1111,6 +1247,7 @@
     $('#opt-mode').addEventListener('change', function () { state.options.mode = this.value; saveSettings(); prepareExport(); });
     $('#btn-export').addEventListener('click', downloadIcs);
     $('#btn-share').addEventListener('click', shareIcs);
+    bindReschedule();
 
     // 导航
     $('#btn-next').addEventListener('click', function () {

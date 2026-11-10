@@ -185,6 +185,16 @@
     if (reminder < 0) reminder = 0;
     var mode = settings.mode === 'single' ? 'single' : 'recurring';
     var now = settings.now instanceof Date ? settings.now : new Date();
+
+    /* 停课日期（全局）：这些日期上的课程不生成事件 */
+    var skipSet = {};
+    if (Array.isArray(settings.skipDates)) {
+      settings.skipDates.forEach(function (v) {
+        var d = parseYmd(v);
+        if (d) skipSet[formatDate(d)] = 1;
+        else warnings.push({ code: 'INVALID_SKIP_DATE', message: '忽略无效的停课日期「' + v + '」' });
+      });
+    }
     var dtstamp = formatUtcStamp(now);
 
     var lines = [];
@@ -269,6 +279,7 @@
       if (mode === 'single') {
         weeks.forEach(function (w) {
           var date = addDays(semesterStart, (w - 1) * 7 + (weekday - 1));
+          if (skipSet[formatDate(date)]) return;
           var start = formatDateTimeLocal(date, startTime);
           var end = formatDateTimeLocal(date, endTime);
           if (!start || !end) return;
@@ -293,16 +304,17 @@
         warnings.push({ code: 'INVALID_TIME_RANGE', message: '跳过「' + name + '」：时间格式错误' });
         return;
       }
+      if (weeks.length === 1 && skipSet[formatDate(firstDate)]) {
+        return;
+      }
       var hasWeek = {};
       weeks.forEach(function (w) { hasWeek[w] = 1; });
       var exdates = [];
-      if (weeks.length > 1) {
-        for (var w = first; w <= last; w++) {
-          if (!hasWeek[w]) {
-            var d = addDays(semesterStart, (w - 1) * 7 + (weekday - 1));
-            var stamp = formatDateTimeLocal(d, startTime);
-            if (stamp) exdates.push(stamp);
-          }
+      for (var w = first; w <= last; w++) {
+        var d = addDays(semesterStart, (w - 1) * 7 + (weekday - 1));
+        if (!hasWeek[w] || skipSet[formatDate(d)]) {
+          var stamp = formatDateTimeLocal(d, startTime);
+          if (stamp) exdates.push(stamp);
         }
       }
       var rrule = weeks.length > 1
@@ -317,6 +329,37 @@
         summary: name,
         location: location,
         description: description
+      }));
+      eventCount++;
+    });
+
+    /* 补课 / 临时调课：额外单次事件 */
+    var extraEvents = Array.isArray(settings.extraEvents) ? settings.extraEvents : [];
+    extraEvents.forEach(function (ev, i) {
+      if (!ev || typeof ev !== 'object') return;
+      var name = trim(ev.name) || '补课';
+      var date = parseYmd(ev.date);
+      var startTime = trim(ev.start);
+      var endTime = trim(ev.end);
+      if (!date || timeToMinutes(startTime) == null || timeToMinutes(endTime) == null || timeToMinutes(endTime) <= timeToMinutes(startTime)) {
+        warnings.push({ code: 'INVALID_EXTRA_EVENT', message: '忽略补课「' + name + '」：日期或时间无效' });
+        return;
+      }
+      var start = formatDateTimeLocal(date, startTime);
+      var end = formatDateTimeLocal(date, endTime);
+      if (!start || !end) {
+        warnings.push({ code: 'INVALID_EXTRA_EVENT', message: '忽略补课「' + name + '」：日期或时间无效' });
+        return;
+      }
+      var location = trim(ev.location);
+      var key = 'x|' + ev.date + '|' + startTime + '|' + endTime + '|' + name + '|' + location;
+      lines = lines.concat(eventLines({
+        uid: 'x' + i + '-' + hash(key) + '@class2cal',
+        start: start,
+        end: end,
+        summary: name,
+        location: location,
+        description: '补课 / 临时调课'
       }));
       eventCount++;
     });
