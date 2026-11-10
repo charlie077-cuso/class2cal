@@ -34,7 +34,7 @@
       firstPeriodTime: '08:00',
       lessonMinutes: 45,
       breakMinutes: 10,
-      lunchMinutes: 120,
+      afternoonStart: '14:00',
       timeZone: 'Asia/Shanghai',
       reminderMinutes: 10,
       mode: 'recurring',
@@ -593,13 +593,47 @@
 
   /* ---------------- 步骤 3：校对时间 ---------------- */
 
+  function updatePresetUI() {
+    var sel = $('#schedule-preset');
+    if (!sel) return;
+    var key = (+state.options.lessonMinutes || 45) + '-' + (+state.options.breakMinutes || 10);
+    var match = false;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === key) { sel.value = key; match = true; }
+    }
+    if (!match) sel.value = 'custom';
+    $('#custom-time-fields').hidden = sel.value !== 'custom';
+  }
+
   function syncCalibrationInputs() {
     var o = state.options;
     $('#semester-start').value = o.semesterStart || '';
     $('#first-period-time').value = o.firstPeriodTime || '08:00';
+    $('#afternoon-start').value = o.afternoonStart || '14:00';
     $('#lesson-minutes').value = String(o.lessonMinutes || 45);
     $('#break-minutes').value = String(o.breakMinutes || 10);
-    $('#lunch-minutes').value = String(o.lunchMinutes || 120);
+    updatePresetUI();
+  }
+
+  function slotPeriodText(slot) {
+    var periods = slot.periods || [];
+    if (!periods.length) return '';
+    return '第 ' + formatPeriods(periods) + ' 节';
+  }
+
+  function renderPreview() {
+    var list = $('#slot-preview');
+    if (!list) return;
+    list.innerHTML = state.slots.map(function (slot, i) {
+      var time = slot.start && slot.end
+        ? esc(slot.start) + ' – ' + esc(slot.end)
+        : '待填写';
+      return '<li data-preview-slot="' + i + '">' +
+        '<span class="slot-preview-label">' + esc(slot.label || ('第 ' + (i + 1) + ' 节')) + '</span>' +
+        '<span class="slot-preview-periods">' + esc(slotPeriodText(slot)) + '</span>' +
+        '<span class="slot-preview-time" data-testid="preview-time-' + i + '">' + time + '</span>' +
+      '</li>';
+    }).join('');
   }
 
   function renderSlotTable() {
@@ -623,10 +657,11 @@
       '</tr>';
     }).join('');
     body.innerHTML = rows;
+    renderPreview();
 
     $('#slot-source-hint').textContent = state.slots.some(function (s) { return s._fileStart; })
-      ? '文件里带有时间，已优先填入；请按学校真实时间核对。'
-      : '文件里没有时间信息，已按你上面的答案推算，请核对。';
+      ? '文件里带有时间，已优先填入；可展开高级逐节核对。'
+      : '已按上面的设置自动推算，可展开高级逐节调整。';
   }
 
   function formatPeriods(periods) {
@@ -641,7 +676,7 @@
   function computeSlotTimes(preferFile) {
     var lesson = +state.options.lessonMinutes || 45;
     var gap = +state.options.breakMinutes || 10;
-    var lunch = +state.options.lunchMinutes || 120;
+    var afternoon = toMinutes(state.options.afternoonStart);
     var cursor = toMinutes(state.options.firstPeriodTime);
     if (cursor == null) cursor = 8 * 60;
     var prevLast = 0;
@@ -650,7 +685,12 @@
       var periods = slot.periods || [];
       var count = Math.max(1, periods.length || 1);
       var firstPeriod = periods.length ? periods[0] : (i * 2 + 1);
-      if (firstPeriod >= 5 && prevLast > 0 && prevLast <= 4) cursor += lunch;
+
+      // 上午 → 下午：从用户填写的「下午第 1 节开始」继续；没填则午休 2 小时兜底
+      if (firstPeriod >= 5 && prevLast > 0 && prevLast <= 4) {
+        if (afternoon != null) cursor = Math.max(cursor, afternoon);
+        else cursor += 120;
+      }
 
       var startMin = cursor;
       var endMin = startMin + count * lesson + (count - 1) * gap;
@@ -708,6 +748,8 @@
       else if (e <= s) bad = { i: i, why: '结束时间需要晚于开始时间' };
     });
     if (bad) {
+      var advanced = $('#advanced-slots');
+      if (advanced) advanced.open = true;
       toast('时段「' + (state.slots[bad.i].label || ('第' + (bad.i + 1) + '节')) + '」' + bad.why, true);
       var row = $('[data-slot="' + bad.i + '"]');
       if (row) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -921,24 +963,49 @@
       }
       saveSettings();
     });
-    ['first-period-time', 'lesson-minutes', 'break-minutes', 'lunch-minutes'].forEach(function (id) {
+    ['first-period-time', 'afternoon-start'].forEach(function (id) {
       $('#' + id).addEventListener('change', function () {
-        state.options[id === 'first-period-time' ? 'firstPeriodTime' : id.replace(/-([a-z])/g, function (_, c) { return c.toUpperCase(); })] = this.value;
-        if (id === 'lesson-minutes' || id === 'break-minutes' || id === 'lunch-minutes') {
-          if (id === 'lesson-minutes') state.options.lessonMinutes = +this.value;
-          if (id === 'break-minutes') state.options.breakMinutes = +this.value;
-          if (id === 'lunch-minutes') state.options.lunchMinutes = +this.value;
-        }
+        if (id === 'first-period-time') state.options.firstPeriodTime = this.value;
+        else state.options.afternoonStart = this.value;
+        state.editedSlots = {};
         computeSlotTimes(false);
         renderSlotTable();
         saveSettings();
       });
     });
-    $('#btn-apply-defaults').addEventListener('click', function () {
+    $('#schedule-preset').addEventListener('change', function () {
+      var v = this.value;
+      if (v === 'custom') {
+        $('#custom-time-fields').hidden = false;
+        return;
+      }
+      var p = v.split('-');
+      state.options.lessonMinutes = +p[0];
+      state.options.breakMinutes = +p[1];
+      $('#lesson-minutes').value = p[0];
+      $('#break-minutes').value = p[1];
+      $('#custom-time-fields').hidden = true;
       state.editedSlots = {};
       computeSlotTimes(false);
       renderSlotTable();
-      toast('已按答案重新推算所有时段');
+      saveSettings();
+    });
+    ['lesson-minutes', 'break-minutes'].forEach(function (id) {
+      $('#' + id).addEventListener('change', function () {
+        if (id === 'lesson-minutes') state.options.lessonMinutes = +this.value;
+        else state.options.breakMinutes = +this.value;
+        updatePresetUI();
+        state.editedSlots = {};
+        computeSlotTimes(false);
+        renderSlotTable();
+        saveSettings();
+      });
+    });
+    $('#btn-reset-slots').addEventListener('click', function () {
+      state.editedSlots = {};
+      computeSlotTimes(false);
+      renderSlotTable();
+      toast('已按上方设置重新推算所有时段');
     });
     $('#slot-times').addEventListener('change', function (e) {
       var t = e.target;
@@ -949,6 +1016,7 @@
       state.editedSlots[i] = true;
       if (t.hasAttribute('data-slot-start')) state.slots[i].start = t.value;
       else state.slots[i].end = t.value;
+      renderPreview();
     });
 
     // 导出设置

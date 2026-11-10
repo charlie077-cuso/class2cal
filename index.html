@@ -133,26 +133,45 @@
     <section class="step" data-step="3" id="step-3">
       <div class="step-head">
         <h2>校对上课时间</h2>
-        <p class="muted">每个学校、每个校区的作息都不一样。请按你们学校真实的上课时间填写，系统会为每个时段推算起止时间，你可以逐行修改。</p>
+        <p class="muted">回答 3 个问题就能生成时间：学期第 1 周周一、上午第 1 节开始、下午第 1 节开始。时段会按作息模板自动推算；如果学校作息特殊，再展开「高级」逐节微调。</p>
       </div>
 
       <div class="card q-card">
         <div class="q">
           <label for="semester-start">学期第 1 周的周一</label>
-          <p class="q-hint">用来计算每周课程的具体日期，请选择第 1 周周一的日期。</p>
+          <p class="q-hint">用来计算每节课的具体日期。选错也没关系，会自动改成该周的周一。</p>
           <input type="date" id="semester-start" data-testid="semester-start" required>
           <p class="field-error" id="semester-start-error" hidden></p>
         </div>
 
+        <div class="q">
+          <label for="schedule-preset">作息模板</label>
+          <p class="q-hint">选一个接近你们学校的模板；都不合适就选「自定义」，自己填时长和课间。</p>
+          <select id="schedule-preset" data-testid="schedule-preset">
+            <option value="45-10" selected>45 分钟一节课 · 课间 10 分钟（常见）</option>
+            <option value="40-10">40 分钟一节课 · 课间 10 分钟</option>
+            <option value="45-5">45 分钟一节课 · 课间 5 分钟</option>
+            <option value="50-10">50 分钟一节课 · 课间 10 分钟</option>
+            <option value="custom">自定义</option>
+          </select>
+        </div>
+
         <div class="q-grid">
           <div class="q">
-            <label for="first-period-time">第 1 节开始时间</label>
+            <label for="first-period-time">上午第 1 节开始</label>
             <p class="q-hint">上午第一节课的上课时间。</p>
             <input type="time" id="first-period-time" data-testid="first-period-time" value="08:00">
           </div>
           <div class="q">
+            <label for="afternoon-start">下午第 1 节开始</label>
+            <p class="q-hint">没有下午课可忽略。</p>
+            <input type="time" id="afternoon-start" data-testid="afternoon-start" value="14:00">
+          </div>
+        </div>
+
+        <div class="q-grid" id="custom-time-fields" hidden>
+          <div class="q">
             <label for="lesson-minutes">每节课时长</label>
-            <p class="q-hint">一节课多少分钟。</p>
             <select id="lesson-minutes" data-testid="lesson-minutes">
               <option value="40">40 分钟</option>
               <option value="45" selected>45 分钟</option>
@@ -162,7 +181,6 @@
           </div>
           <div class="q">
             <label for="break-minutes">课间休息</label>
-            <p class="q-hint">相邻两节课之间的休息时间。</p>
             <select id="break-minutes" data-testid="break-minutes">
               <option value="5">5 分钟</option>
               <option value="10" selected>10 分钟</option>
@@ -170,38 +188,28 @@
               <option value="20">20 分钟</option>
             </select>
           </div>
-          <div class="q">
-            <label for="lunch-minutes">午休时长</label>
-            <p class="q-hint">上午最后一节到下午第一节之间的间隔。</p>
-            <select id="lunch-minutes">
-              <option value="60">60 分钟</option>
-              <option value="90">90 分钟</option>
-              <option value="120" selected>120 分钟</option>
-              <option value="150">150 分钟</option>
-              <option value="180">180 分钟</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="card-actions">
-          <button type="button" class="btn btn-ghost" id="btn-apply-defaults">按以上答案重新推算时段</button>
         </div>
       </div>
 
       <div class="card">
         <div class="slot-head">
-          <h3>时段表</h3>
+          <h3>时段预览</h3>
           <p class="muted small" id="slot-source-hint"></p>
         </div>
-        <div class="slot-scroll">
-          <table class="slot-table">
-            <thead>
-              <tr><th>时段</th><th>开始</th><th>结束</th><th class="col-detect">文件中的时间</th></tr>
-            </thead>
-            <tbody id="slot-times"></tbody>
-          </table>
-        </div>
-        <p class="hint">改过的行不会被「重新推算」覆盖。确认无误后继续。</p>
+        <ul class="slot-preview" id="slot-preview" data-testid="slot-preview"></ul>
+        <details class="advanced-slots" id="advanced-slots">
+          <summary>高级：逐节微调时间</summary>
+          <p class="hint">一般不需要动。只有晚课、实验课等特殊作息才需要逐节修改；改过的行不会被模板覆盖。</p>
+          <div class="slot-scroll">
+            <table class="slot-table">
+              <thead>
+                <tr><th>时段</th><th>开始</th><th>结束</th><th class="col-detect">文件中的时间</th></tr>
+              </thead>
+              <tbody id="slot-times"></tbody>
+            </table>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-reset-slots">全部按上方重新推算</button>
+        </details>
       </div>
     </section>
 
