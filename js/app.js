@@ -1132,7 +1132,9 @@
     if ('serviceWorker' in navigator && location.protocol === 'https:' &&
         location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js').catch(function () {});
+        navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+          .then(function (reg) { if (reg && reg.update) reg.update().catch(function () {}); })
+          .catch(function () {});
       });
     }
 
