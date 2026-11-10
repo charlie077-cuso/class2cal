@@ -1,7 +1,7 @@
-/* 课表转日历 · Service Worker（离线可用） */
+/* 课表转日历 · Service Worker（离线可用 + 网络优先避免版本错配） */
 'use strict';
 
-const CACHE = 'class2cal-v7';
+const CACHE = 'class2cal-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -30,6 +30,18 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+function networkFirst(req, fallbackKey) {
+  return fetch(req)
+    .then((res) => {
+      if (res && res.ok && res.type === 'basic') {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+      }
+      return res;
+    })
+    .catch(() => caches.match(fallbackKey || req));
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
@@ -39,29 +51,10 @@ self.addEventListener('fetch', (event) => {
 
   // 页面导航：网络优先，离线回退到缓存的首页
   if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
-          return res;
-        })
-        .catch(() => caches.match('./index.html'))
-    );
+    event.respondWith(networkFirst(req, './index.html'));
     return;
   }
 
-  // 静态资源：缓存优先
-  event.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) return hit;
-      return fetch(req).then((res) => {
-        if (res && res.ok && res.type === 'basic') {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
-        }
-        return res;
-      });
-    })
-  );
+  // 静态资源也用网络优先：更新部署后不会出现「新页面配旧脚本」的版本错配；离线时回退缓存
+  event.respondWith(networkFirst(req));
 });
