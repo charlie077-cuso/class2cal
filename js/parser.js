@@ -114,7 +114,15 @@
 
   /* ---------------- 星期 / 表头 ---------------- */
 
-  function parseWeekdayCell(v) {
+  function weekdayFromDate(y, m, d) {
+    if (!y || y < 1900) return 0;
+    var dt = new Date(y, m - 1, d);
+    if (isNaN(dt.getTime())) return 0;
+    var w = dt.getDay();
+    return w === 0 ? 7 : w;
+  }
+
+  function parseWeekdayCell(v, yearHint) {
     if (v == null || v === '') return 0;
     if (v instanceof Date) {
       var d = v.getDay();
@@ -130,6 +138,28 @@
     var m = /(?:星期|周|礼拜)\s*([一二三四五六日天])/.exec(s);
     if (m) return DAY_WORDS[m[1]];
     if (/^[一二三四五六日天]$/.test(s)) return DAY_WORDS[s];
+    // 表头用日期表示：2026-09-07 / 2026/9/7 / 2026.9.7；没有年份时用学年学期提示
+    var dm = /^(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})\s*日?$/.exec(s);
+    if (dm) return weekdayFromDate(+dm[1], +dm[2], +dm[3]);
+    var md = /^(\d{1,2})\s*[月\/.\-]\s*(\d{1,2})\s*日?$/.exec(s);
+    if (md && yearHint) {
+      var mm = +md[1];
+      return weekdayFromDate(mm >= 8 ? yearHint : yearHint + 1, mm, +md[2]);
+    }
+    return 0;
+  }
+
+  /* 从「2026-2027-1」这类学期文本取起始年份，用于无年份的日期表头 */
+  function semesterYear(matrix) {
+    var lim = Math.min(matrix.length, 12);
+    for (var r = 0; r < lim; r++) {
+      var row = matrix[r] || [];
+      for (var c = 0; c < row.length; c++) {
+        var s = String(cellAt(matrix, r, c) == null ? '' : cellAt(matrix, r, c));
+        var m = /(20\d{2})\s*[-–—~至]\s*(20\d{2})/.exec(s);
+        if (m) return +m[1];
+      }
+    }
     return 0;
   }
 
@@ -137,14 +167,14 @@
     return matrix[r] ? matrix[r][c] : '';
   }
 
-  function detectHeader(matrix) {
+  function detectHeader(matrix, yearHint) {
     var best = null;
     var maxRow = Math.min(matrix.length, 25);
     for (var r = 0; r < maxRow; r++) {
       var map = {}, count = 0;
       var row = matrix[r] || [];
       for (var c = 0; c < row.length; c++) {
-        var day = parseWeekdayCell(row[c]);
+        var day = parseWeekdayCell(row[c], yearHint);
         if (day && !map[day]) { map[day] = c; count++; }
       }
       if (count >= 2 && (!best || count > best.count)) {
@@ -152,6 +182,38 @@
       }
     }
     return best;
+  }
+
+  /* 竖排课表：星期在一列里（纵向），节次在一行里（横向） */
+  function detectTransposedHeader(matrix, yearHint) {
+    var maxC = Math.min(matrix.reduce(function (m, row) { return Math.max(m, row ? row.length : 0); }, 0), 20);
+    var best = null;
+    for (var c = 0; c < maxC; c++) {
+      var map = {}, count = 0;
+      var lim = Math.min(matrix.length, 40);
+      for (var r = 0; r < lim; r++) {
+        var day = parseWeekdayCell(cellAt(matrix, r, c), yearHint);
+        if (day && !map[day]) { map[day] = r; count++; }
+      }
+      if (count >= 3 && (!best || count > best.count)) {
+        best = { col: c, weekdayRows: map, count: count };
+      }
+    }
+    return best;
+  }
+
+  function transposeSheet(matrix, merges) {
+    var maxC = matrix.reduce(function (m, row) { return Math.max(m, row ? row.length : 0); }, 0);
+    var out = [];
+    for (var c = 0; c < maxC; c++) {
+      var row = [];
+      for (var r = 0; r < matrix.length; r++) row.push(cellAt(matrix, r, c));
+      out.push(row);
+    }
+    var tmerges = (merges || []).map(function (m) {
+      return { s: { r: m.s.c, c: m.s.r }, e: { r: m.e.c, c: m.e.r } };
+    });
+    return { matrix: out, merges: tmerges };
   }
 
   /* ---------------- 节次 / 时段 ---------------- */
@@ -401,6 +463,128 @@
     return meta;
   }
 
+  /* ---------------- 列表式课表（一行一门课） ---------------- */
+
+  var LIST_KEYS = [
+    { key: 'name', re: /^(课程名称|课程名|课程|科目|教学班名称|名称)$/ },
+    { key: 'teacher', re: /^(任课教师|授课教师|教师|老师)$/ },
+    { key: 'weekday', re: /^(星期|星期几|周几|上课星期)$/ },
+    { key: 'period', re: /^(节次|上课节次|节次范围)$/ },
+    { key: 'weeks', re: /^(周次|上课周次|起止周|周数)$/ },
+    { key: 'location', re: /^(上课地点|地点|教室|场地|上课教室)$/ },
+    { key: 'time', re: /^(上课时间|时间|上课时间地点|时间地点)$/ }
+  ];
+
+  function listHeaderRow(matrix) {
+    var lim = Math.min(matrix.length, 20);
+    for (var r = 0; r < lim; r++) {
+      var map = {}, row = matrix[r] || [];
+      for (var c = 0; c < row.length; c++) {
+        var t = trim(row[c]).replace(/[\s:：]/g, '');
+        if (!t) continue;
+        for (var k = 0; k < LIST_KEYS.length; k++) {
+          if (LIST_KEYS[k].re.test(t) && map[LIST_KEYS[k].key] == null) { map[LIST_KEYS[k].key] = c; break; }
+        }
+      }
+      if (map.name != null && map.period != null && (map.weekday != null || map.time != null)) {
+        return { row: r, cols: map };
+      }
+    }
+    return null;
+  }
+
+  function weekdayFromText(s) {
+    var txt = trim(s);
+    if (!txt) return 0;
+    var d = parseWeekdayCell(txt, 0);
+    if (d) return d;
+    var m = /(?:星期|周|礼拜)\s*([1-7])/.exec(txt);
+    if (m) return +m[1];
+    if (/^\s*[1-7]\s*$/.test(txt)) return +txt;
+    return 0;
+  }
+
+  function parseListSheet(matrix) {
+    var head = listHeaderRow(matrix);
+    if (!head) return null;
+    var slots = [], slotMap = {}, courses = [], warnings = [], counter = 0;
+
+    function cellOf(row, key) {
+      var c = head.cols[key];
+      return c == null ? '' : trim(row[c]);
+    }
+
+    for (var r = head.row + 1; r < matrix.length; r++) {
+      var row = matrix[r] || [];
+      var name = cellOf(row, 'name');
+      if (!name) continue;
+      if (/^(备注|说明|合计|总计)/.test(name)) break;
+
+      var timeText = cellOf(row, 'time');
+      var weekday = weekdayFromText(cellOf(row, 'weekday')) || weekdayFromText(timeText);
+      var periods = parsePeriods(cellOf(row, 'period'));
+      if (!periods.length) periods = parsePeriods(timeText);
+      var weeksText = cellOf(row, 'weeks');
+      var weeks = parseWeeks(weeksText);
+      if (!weeks.length && timeText) weeks = parseWeeks(timeText);
+      if (!weeks.length) weeksText = '';
+      var ranges = parseTimeRanges(timeText);
+      if (!ranges.length) ranges = parseTimeRanges(cellOf(row, 'period'));
+      var label = cellOf(row, 'period');
+      if (!label && timeText) label = trim(timeText.split('\n')[0]).slice(0, 24);
+
+      if (!weekday) {
+        warnings.push({ code: 'NO_WEEKDAY', message: '「' + name + '」没有识别出星期，已跳过', detail: row.join(' | ') });
+        continue;
+      }
+      if (!periods.length) {
+        warnings.push({ code: 'NO_PERIODS', message: '「' + name + '」没有识别出节次，已跳过', detail: row.join(' | ') });
+        continue;
+      }
+
+      var slotKey = periods.join('-') + '@' + label;
+      var si = slotMap[slotKey];
+      if (si == null) {
+        si = slots.length;
+        slotMap[slotKey] = si;
+        slots.push({
+          index: si,
+          label: label || ('第' + periods[0] + '-' + periods[periods.length - 1] + '节'),
+          periods: periods.slice(),
+          start: ranges.length ? ranges[0].start : null,
+          end: ranges.length ? ranges[ranges.length - 1].end : null,
+          raw: label
+        });
+      } else if (ranges.length && !slots[si].start) {
+        slots[si].start = ranges[0].start;
+        slots[si].end = ranges[ranges.length - 1].end;
+      }
+
+      counter++;
+      var course = {
+        id: 'c' + counter,
+        name: name,
+        teacher: cellOf(row, 'teacher'),
+        location: cellOf(row, 'location'),
+        weekday: weekday,
+        slotIndex: si,
+        slotEndIndex: si,
+        periodLabel: slots[si].label,
+        weeks: weeks,
+        weeksText: weeksText,
+        note: '',
+        raw: row.join(' | ')
+      };
+      courses.push(course);
+      if (!weeks.length) {
+        warnings.push({ code: 'NO_WEEKS', message: '「' + name + '」没有识别出周次，请在核对页补充。', detail: course.raw });
+      }
+    }
+
+    if (!courses.length) return null;
+    return { head: head, slots: slots, courses: courses, warnings: warnings };
+  }
+
   /* ---------------- 主解析 ---------------- */
 
   function noTimetableResult(sheetName, sheetNames, warnings) {
@@ -410,7 +594,7 @@
       meta: { title: '', school: '', semester: '', className: '', major: '', department: '', rawLines: [] },
       slots: [],
       courses: [],
-      warnings: warnings || [{ code: 'NO_TIMETABLE', message: '没有识别出课表：找不到“星期一…星期日”表头或节次列。' }],
+      warnings: warnings || [{ code: 'NO_TIMETABLE', message: '没有识别出课表：找不到星期表头或节次列，可能是不支持的表格结构。可以点「手动创建课表」逐门录入，或把文件反馈给我们适配。' }],
       detected: { headerRow: -1, weekdayCols: {}, periodCol: -1, slotsFound: 0, confidence: 0 },
       stats: { courseCount: 0, slotCount: 0 }
     };
@@ -419,18 +603,53 @@
   function analyzeSheet(ws) {
     var sm = sheetMatrix(ws);
     var matrix = sm.matrix, merges = sm.merges;
-    var header = detectHeader(matrix);
+    var yearHint = semesterYear(matrix);
+    var header = detectHeader(matrix, yearHint);
     if (!header) {
+      // 竖排课表：星期在行、节次在列
+      var th = detectTransposedHeader(matrix, yearHint);
+      if (th) {
+        var t = transposeSheet(matrix, merges);
+        var header2 = detectHeader(t.matrix, yearHint);
+        if (header2 && header2.count >= 2) {
+          var cols2 = detectSlotColumn(t.matrix, header2, t.merges);
+          if (cols2.periodCol >= 0) {
+            return {
+              ok: true, kind: 'transposed', matrix: t.matrix, merges: t.merges,
+              header: header2, cols: cols2,
+              meta: extractMeta(matrix, Math.min(matrix.length, 6))
+            };
+          }
+        }
+      }
+      // 列表式课表：一行一门课
+      var list = parseListSheet(matrix);
+      if (list) return { ok: true, kind: 'list', list: list, meta: extractMeta(matrix, list.head.row) };
       return { ok: false, reason: 'no-header', matrix: matrix, merges: merges, header: null };
     }
     var cols = detectSlotColumn(matrix, header, merges);
     if (cols.periodCol < 0) {
+      var list2 = parseListSheet(matrix);
+      if (list2) return { ok: true, kind: 'list', list: list2, meta: extractMeta(matrix, list2.head.row) };
       return { ok: false, reason: 'no-slot-column', matrix: matrix, merges: merges, header: header, cols: cols };
     }
-    return { ok: true, matrix: matrix, merges: merges, header: header, cols: cols };
+    return { ok: true, kind: 'grid', matrix: matrix, merges: merges, header: header, cols: cols };
   }
 
   function buildResult(ctx, options) {
+    if (ctx.kind === 'list') {
+      var l = ctx.list;
+      return {
+        sheetName: options.sheetName || '',
+        sheetNames: options.sheetNames || [],
+        meta: ctx.meta || { title: '', school: '', semester: '', className: '', major: '', department: '', rawLines: [] },
+        slots: l.slots,
+        courses: l.courses,
+        warnings: l.warnings,
+        detected: { headerRow: l.head.row, weekdayCols: {}, periodCol: -1, slotsFound: l.slots.length, confidence: 0.9 },
+        stats: { courseCount: l.courses.length, slotCount: l.slots.length }
+      };
+    }
     var matrix = ctx.matrix, merges = ctx.merges, header = ctx.header, cols = ctx.cols;
     var maxC = matrix.reduce(function (m, row) { return Math.max(m, row ? row.length : 0); }, 0);
     var slots = [];
@@ -528,7 +747,7 @@
       warnings.push({ code: 'NO_COURSES', message: '识别到表头和节次，但单元格里没有课程内容。' });
     }
 
-    var meta = extractMeta(matrix, header.row);
+    var meta = ctx.meta || extractMeta(matrix, header.row);
     var confidence = Math.min(1, 0.55 * Math.min(1, header.count / 5) + 0.45 * Math.min(1, slots.length / 6));
 
     return {
@@ -553,14 +772,18 @@
     var analysis;
     try { analysis = analyzeSheet(ws); } catch (e) { return { score: -1, isTimetable: false, reason: 'error', headerRow: -1, weekdayCount: 0 }; }
     if (!analysis.ok || !analysis.header) {
-      return { score: 0, isTimetable: false, reason: analysis.reason || 'no-header', headerRow: analysis.header ? analysis.header.row : -1, weekdayCount: analysis.header ? analysis.header.count : 0 };
+      return { score: 0, isTimetable: false, reason: analysis.reason || (analysis.kind === 'list' ? 'list' : 'no-header'), headerRow: analysis.header ? analysis.header.row : -1, weekdayCount: analysis.header ? analysis.header.count : 0 };
+    }
+    if (analysis.kind === 'list') {
+      var ln = analysis.list.courses.length;
+      return { score: 40 + Math.min(ln, 15), isTimetable: true, reason: 'list', headerRow: analysis.list.head.row, weekdayCount: 7 };
     }
     var header = analysis.header;
     var slots = 0;
     for (var r = header.row + 1; r < analysis.matrix.length && r <= header.row + 60; r++) {
       if (isSlotLabel(cellAt(analysis.matrix, r, analysis.cols.periodCol))) slots++;
     }
-    var score = header.count * 10 + Math.min(slots, 12);
+    var score = header.count * 10 + Math.min(slots, 12) + (analysis.kind === 'transposed' ? 5 : 0);
     return {
       score: score,
       isTimetable: header.count >= 2 && slots >= 1,
@@ -606,7 +829,7 @@
     var analysis = analyzeSheet(wb.Sheets[sheetName]);
     if (!analysis.ok) {
       var why = analysis.reason === 'no-header'
-        ? '没有找到“星期一…星期日”表头。'
+        ? '没有找到星期表头（星期/周一/English weekday/日期均可），也不像列表式课表。'
         : '没有找到节次列（如“0102节”“第1-2节”）。';
       return noTimetableResult(sheetName, names, [{ code: 'NO_TIMETABLE', message: why, detail: analysis.reason }]);
     }
