@@ -551,6 +551,9 @@ input:focus, select:focus {
 .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
 .field label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 5px; }
 .export-card { text-align: center; }
+#btn-share { margin-top: 10px; }
+.install-card h3 { font-size: 16px; margin-bottom: 4px; }
+.install-card .btn { margin-top: 10px; }
 .export-summary {
   font-size: 14px;
   color: var(--muted);
@@ -666,7 +669,7 @@ input:focus, select:focus {
 }
 
 @media (min-width: 1000px) {
-  .import-cols { grid-template-columns: repeat(3, 1fr); }
+  .import-cols { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* 减少动效 */

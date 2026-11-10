@@ -829,6 +829,63 @@
     $('#export-hint').textContent = '如果手机没有自动打开日历：到通知栏或「文件」里点开下载的 .ics 文件，选择日历导入。';
   }
 
+  function icsFileName() {
+    return ('课表-' + (state.options.semesterStart || '') + '.ics').replace(/[\\/:*?"<>|]/g, '-');
+  }
+
+  /* 安卓 / 移动端：把 .ics 作为文件分享到其他 App（微信、邮箱、网盘、日历 App 等） */
+  function shareIcs() {
+    var res = previewIcs();
+    if (!res || res.error) { toast('生成失败：' + (res && res.error ? res.error : '未知错误'), true); return; }
+    if (!res.eventCount) { toast('没有可导出的事件，请先核对课程周次与时间', true); return; }
+
+    var file;
+    try {
+      file = new File([res.ics], icsFileName(), { type: 'text/calendar' });
+    } catch (e) {
+      toast('当前浏览器不支持分享文件，请用下载按钮', true);
+      return;
+    }
+    if (!(navigator.canShare && navigator.canShare({ files: [file] }))) {
+      toast('当前浏览器不支持分享文件，请用下载按钮', true);
+      return;
+    }
+
+    navigator.share({
+      files: [file],
+      title: state.options.calendarName || '课程表'
+    }).then(function () {
+      saveSettings();
+      toast('已打开系统分享，选择日历 / 微信 / 邮箱即可发送');
+    }).catch(function (err) {
+      if (err && err.name === 'AbortError') return;
+      toast('分享失败，请改用下载按钮', true);
+    });
+  }
+
+  /* 安卓 Chrome 的「安装到主屏幕」 */
+  var deferredInstallPrompt = null;
+  function setupInstall() {
+    if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return;
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      var card = $('#install-card');
+      if (card) card.hidden = false;
+    });
+    var btn = $('#btn-install');
+    if (!btn) return;
+    btn.addEventListener('click', function () {
+      if (!deferredInstallPrompt) {
+        toast('请用 Chrome 右上角菜单 →「添加到主屏幕 / 安装应用」');
+        return;
+      }
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt = null;
+      $('#install-card').hidden = true;
+    });
+  }
+
   /* ---------------- 设置持久化 ---------------- */
 
   function saveSettings() {
@@ -1025,6 +1082,7 @@
     $('#opt-reminder').addEventListener('change', function () { state.options.reminderMinutes = +this.value; saveSettings(); });
     $('#opt-mode').addEventListener('change', function () { state.options.mode = this.value; saveSettings(); prepareExport(); });
     $('#btn-export').addEventListener('click', downloadIcs);
+    $('#btn-share').addEventListener('click', shareIcs);
 
     // 导航
     $('#btn-next').addEventListener('click', function () {
@@ -1059,6 +1117,16 @@
     syncCalibrationInputs();
     bind();
     setStep(1);
+
+    // 安装到主屏幕（安卓 Chrome）
+    setupInstall();
+
+    // 分享 .ics（安卓 Chrome / 部分浏览器支持文件分享）
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [new File(['x'], 'a.ics', { type: 'text/calendar' })] })) {
+        $('#btn-share').hidden = false;
+      }
+    } catch (e) {}
 
     // PWA：仅在线部署时注册，避免本地开发缓存干扰
     if ('serviceWorker' in navigator && location.protocol === 'https:' &&

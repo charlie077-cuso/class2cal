@@ -260,11 +260,18 @@
       <div class="card export-card">
         <div class="export-summary" id="export-summary">正在统计…</div>
         <button type="button" class="btn btn-primary btn-xl" id="btn-export" data-testid="export-ics">生成并下载 .ics 文件</button>
+        <button type="button" class="btn btn-ghost btn-xl" id="btn-share" data-testid="share-ics" hidden>分享 .ics 文件到其他应用</button>
         <a class="btn btn-ghost btn-xl" id="download-ics" data-testid="download-ics" hidden download>再次下载</a>
         <p class="hint" id="export-hint"></p>
       </div>
 
-      <details class="card import-help" open>
+      <div class="card install-card" id="install-card" hidden>
+        <h3>装到手机主屏幕</h3>
+        <p class="muted small">像 App 一样从桌面打开，断网也能用。</p>
+        <button type="button" class="btn btn-primary" id="btn-install" data-testid="install-app">安装到主屏幕</button>
+      </div>
+
+      <details class="card import-help" open id="import-help">
         <summary>怎么导入到手机日历？</summary>
         <div class="import-cols">
           <div>
@@ -276,21 +283,30 @@
             </ol>
           </div>
           <div>
-            <h4>Android</h4>
+            <h4>安卓：系统日历（三星 / 小米 / 华为 / OPPO 等）</h4>
             <ol>
-              <li>点「生成并下载」，在通知栏或「文件管理」里点开 .ics 文件。</li>
-              <li>选择系统日历（或 Google 日历）导入。</li>
-              <li>不同品牌手机路径略有差异，找不到时可在日历 App 里选「导入」。</li>
+              <li>下载后，在通知栏或「文件管理 → 下载」里点一下 .ics 文件。</li>
+              <li>选择「日历」或手机自带日历，按提示导入到本机日历。</li>
+              <li>若本机日历同步了 Google 账号，事件也会一起同步过去。</li>
+            </ol>
+          </div>
+          <div>
+            <h4>安卓 + Google 日历（官方支持的方式）</h4>
+            <ol>
+              <li>Google 日历 App 没有导入按钮，要用手机浏览器打开 <a href="https://calendar.google.com/calendar/u/0/r/settings/export" target="_blank" rel="noopener" data-testid="google-import-link">Google 日历导入页</a>。</li>
+              <li>在 Chrome 右上角菜单里勾选「桌面版网站」，页面会变成电脑版。</li>
+              <li>点「导入和导出」→「选择文件」→ 选中下载的 .ics → 导入。</li>
             </ol>
           </div>
           <div>
             <h4>Google 日历 / 电脑</h4>
             <ol>
               <li>打开 Google 日历网页版 → 设置 → 导入和导出。</li>
-              <li>上传下载的 .ics 文件，选择目标日历后导入。</li>
+              <li>选择 .ics 文件和目标日历后导入；单个文件需小于 1 MB。</li>
             </ol>
           </div>
         </div>
+        <p class="hint">导入是一次性复制。想持续同步，可以把 .ics 放到自己的网址，在 Google 日历「其他日历 → 通过网址添加」订阅；安卓也可用 ICSx⁵ 等 App 订阅该链接。</p>
       </details>
     </section>
   </main>
