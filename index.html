@@ -40,7 +40,7 @@
     <section class="step active" data-step="1" id="step-1">
       <div class="hero">
         <h1>把课表变成手机日历</h1>
-        <p>上传从学校官网下载的 <b>.xls / .xlsx</b> 课表，核对上课时间后导出 <b>.ics</b>，一次性导入 iPhone 日历、Google 日历等。</p>
+        <p>上传从学校官网下载的 <b>.xls / .xlsx / .csv</b> 课表，核对上课时间后导出 <b>.ics</b>，一次性导入 iPhone 日历、Google 日历等。</p>
         <ul class="hero-points">
           <li>文件只在你的浏览器里解析，不会上传到任何服务器</li>
           <li>自动识别星期、节次、周次（含单双周）与地点</li>
@@ -49,7 +49,7 @@
       </div>
 
       <div class="drop-zone" id="drop-zone" data-testid="drop-zone">
-        <input type="file" id="file-input" data-testid="file-input" accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+        <input type="file" id="file-input" data-testid="file-input" accept=".xls,.xlsx,.csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
         <button type="button" class="upload-box" id="pick-btn">
           <span class="upload-icon" aria-hidden="true">
             <svg viewBox="0 0 48 48" width="46" height="46" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -57,7 +57,7 @@
             </svg>
           </span>
           <strong>点击选择课表文件</strong>
-          <span class="upload-sub">或把 .xls / .xlsx 文件拖到这里</span>
+          <span class="upload-sub">或把 .xls / .xlsx / .csv 文件拖到这里</span>
         </button>
         <p class="drop-hint" id="drop-hint">支持学校教务系统导出的 Excel 课表</p>
       </div>
@@ -98,7 +98,7 @@
 
       <div class="card tip-card">
         <h3>找不到课表文件？</h3>
-        <p>登录学校教务系统（如正方、强智、URP、青果等），在「我的课表 / 学生个人课表」页面选择导出 Excel，把下载到的 .xls 或 .xlsx 拖到这里即可。</p>
+        <p>登录学校教务系统（如正方、强智、URP、青果等），在「我的课表 / 学生个人课表」页面选择导出 Excel（或 CSV），把下载到的文件拖到这里即可。</p>
       </div>
     </section>
 

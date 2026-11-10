@@ -223,8 +223,8 @@
   function handleFile(file) {
     if (!file) return;
     var name = file.name || '';
-    if (!/\.(xls|xlsx)$/i.test(name)) {
-      toast('请选择 .xls 或 .xlsx 格式的课表文件', true);
+    if (!/\.(xls|xlsx|csv)$/i.test(name)) {
+      toast('请选择 .xls、.xlsx 或 .csv 格式的课表文件', true);
       return;
     }
     if (file.size > 30 * 1024 * 1024) {

@@ -67,6 +67,29 @@
 
   /* ---------------- 读取工作簿 ---------------- */
 
+  /* 是否为真正的二进制 Excel（xlsx=ZIP / xls=OLE）；否则按文本处理（CSV / HTML 伪装成 xls） */
+  function isBinarySpreadsheet(buf) {
+    if (!buf || !buf.length) return false;
+    if (buf.length >= 4 && buf[0] === 0x50 && buf[1] === 0x4b) return true;
+    if (buf.length >= 4 && buf[0] === 0xd0 && buf[1] === 0xcf && buf[2] === 0x11 && buf[3] === 0xe0) return true;
+    return false;
+  }
+
+  function decodeTextFile(buf) {
+    var bytes = null;
+    if (typeof Buffer !== 'undefined' && Buffer.isBuffer(buf)) bytes = buf;
+    else if (buf instanceof Uint8Array) bytes = buf;
+    else if (buf instanceof ArrayBuffer) bytes = new Uint8Array(buf);
+    if (!bytes) return String(buf);
+    if (typeof TextDecoder !== 'undefined') {
+      try { return new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/, ''); } catch (e) {}
+      try { return new TextDecoder('gbk').decode(bytes); } catch (e) {}
+    }
+    var out = '';
+    for (var i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+    return out;
+  }
+
   function readWorkbook(input) {
     if (input && typeof input === 'object' && input.SheetNames && input.Sheets) return input;
     var data = input;
@@ -80,6 +103,10 @@
     } else if (ArrayBuffer.isView(input)) {
       data = new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
       type = 'array';
+    }
+    var bytes = type === 'buffer' ? data : (data instanceof Uint8Array ? data : new Uint8Array(data));
+    if (!isBinarySpreadsheet(bytes)) {
+      return XLSX.read(decodeTextFile(bytes), { type: 'string', cellDates: true, cellNF: false, cellText: false });
     }
     return XLSX.read(data, { type: type, cellDates: true, cellNF: false, cellText: false });
   }
@@ -487,13 +514,13 @@
   /* ---------------- 列表式课表（一行一门课） ---------------- */
 
   var LIST_KEYS = [
-    { key: 'name', re: /^(课程名称|课程名|课程|科目|教学班名称|名称)$/ },
-    { key: 'teacher', re: /^(任课教师|授课教师|教师|老师)$/ },
-    { key: 'weekday', re: /^(星期|星期几|周几|上课星期)$/ },
-    { key: 'period', re: /^(节次|上课节次|节次范围)$/ },
-    { key: 'weeks', re: /^(周次|上课周次|起止周|周数)$/ },
-    { key: 'location', re: /^(上课地点|地点|教室|场地|上课教室)$/ },
-    { key: 'time', re: /^(上课时间|时间|上课时间地点|时间地点)$/ }
+    { key: 'name', re: /^(课程名称|课程名|课程|科目名称|科目|教学班名称|教学班|名称)$/ },
+    { key: 'teacher', re: /^(任课教师|授课教师|上课教师|主讲教师|主讲老师|教师姓名|任课老师|教师|老师)$/ },
+    { key: 'weekday', re: /^(星期|星期几|周几|上课星期|星期\/日期|星期[\(（]日期[\)）]|日期)$/ },
+    { key: 'period', re: /^(节次|上课节次|节次范围|上课节数|课节|节)$/ },
+    { key: 'weeks', re: /^(周次|上课周次|授课周次|教学周|起止周|周数)$/ },
+    { key: 'location', re: /^(上课地点|授课地点|上课教室|地点|教室|场地)$/ },
+    { key: 'time', re: /^(上课时间|上课时段|时间|上课时间地点|时间地点)$/ }
   ];
 
   function listHeaderRow(matrix) {
@@ -514,10 +541,10 @@
     return null;
   }
 
-  function weekdayFromText(s) {
+  function weekdayFromText(s, yearHint) {
     var txt = trim(s);
     if (!txt) return 0;
-    var d = parseWeekdayCell(txt, 0);
+    var d = parseWeekdayCell(txt, yearHint || 0);
     if (d) return d;
     var m = /(?:星期|周|礼拜)\s*([1-7])/.exec(txt);
     if (m) return +m[1];
@@ -525,10 +552,19 @@
     return 0;
   }
 
+  /* 课程名可能带装饰符或课程代码，如「■高等数学」「[123456]大学英语」「B1234-01 高等数学」 */
+  function cleanCourseName(name) {
+    var s = trim(name);
+    s = s.replace(/^[■□◆◇●○★☆▶►▷\s]+/, '');
+    s = s.replace(/^[\[\(【]?[A-Za-z]{0,4}\d{3,}[\]\)】]?[\s\-—:：、]*/, '');
+    return trim(s) || trim(name);
+  }
+
   function parseListSheet(matrix) {
     var head = listHeaderRow(matrix);
     if (!head) return null;
     var slots = [], slotMap = {}, courses = [], warnings = [], counter = 0;
+    var yearHint = semesterYear(matrix);
 
     function cellOf(row, key) {
       var c = head.cols[key];
@@ -540,9 +576,10 @@
       var name = cellOf(row, 'name');
       if (!name) continue;
       if (/^(备注|说明|合计|总计)/.test(name)) break;
+      name = cleanCourseName(name);
 
       var timeText = cellOf(row, 'time');
-      var weekday = weekdayFromText(cellOf(row, 'weekday')) || weekdayFromText(timeText);
+      var weekday = weekdayFromText(cellOf(row, 'weekday'), yearHint) || weekdayFromText(timeText, yearHint);
       var periods = parsePeriods(cellOf(row, 'period'));
       if (!periods.length) periods = parsePeriods(timeText);
       var weeksText = cellOf(row, 'weeks');
