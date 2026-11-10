@@ -229,6 +229,12 @@
       var a = cnToNumber(m[1]), b = cnToNumber(m[2]);
       if (a > 0 && b > 0) return uniqueSorted(rangeNumbers(a, b));
     }
+    // 第一大节 / 第1大节 / 大节一 → 每大节按 2 节算（[01-02]节、[03-04]节…）
+    var mBig = /(?:第)?\s*([0-9一二三四五六七八九十]+)\s*大节/.exec(s);
+    if (mBig) {
+      var bn = cnToNumber(mBig[1]);
+      if (bn > 0) return [bn * 2 - 1, bn * 2];
+    }
     // 第3节
     var m2 = /第\s*([0-9一二三四五六七八九十]+)\s*节/.exec(s);
     if (m2) {
@@ -459,7 +465,7 @@
     meta.semester = pick(/学年学期[：:]\s*([^\s]+)/) || pick(/学期[：:]\s*([^\s]+)/);
     meta.className = pick(/班级[：:]\s*([^\s]+)/);
     meta.major = pick(/专业[：:]\s*([^\s]+)/);
-    meta.department = pick(/院系[：:]\s*([^\s]+)/) || pick(/系部[：:]\s*([^\s]+)/);
+    meta.department = pick(/院系[：:]\s*([^\s]+)/) || pick(/系部[：:]\s*([^\s]+)/) || pick(/学院[：:]\s*([^\s]+)/);
     return meta;
   }
 
