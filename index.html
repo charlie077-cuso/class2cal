@@ -133,7 +133,7 @@
     <section class="step" data-step="3" id="step-3">
       <div class="step-head">
         <h2>校对上课时间</h2>
-        <p class="muted">回答 3 个问题就能生成时间：学期第 1 周周一、上午第 1 节开始、下午第 1 节开始。时段会按作息模板自动推算；如果学校作息特殊，再展开「高级」逐节微调。</p>
+        <p class="muted">填 4 个时间就能生成：学期第 1 周周一、上午/下午/晚上第 1 节开始。节间休息和大节之间的课间按模板换算，学校作息特殊可在「高级」里逐节微调。</p>
       </div>
 
       <div class="card q-card">
@@ -148,10 +148,11 @@
           <label for="schedule-preset">作息模板</label>
           <p class="q-hint">选一个接近你们学校的模板；都不合适就选「自定义」，自己填时长和课间。</p>
           <select id="schedule-preset" data-testid="schedule-preset">
-            <option value="45-10" selected>45 分钟一节课 · 课间 10 分钟（常见）</option>
-            <option value="40-10">40 分钟一节课 · 课间 10 分钟</option>
-            <option value="45-5">45 分钟一节课 · 课间 5 分钟</option>
-            <option value="50-10">50 分钟一节课 · 课间 10 分钟</option>
+            <option value="45-5-20" selected>45 分钟/节 · 节间 5 分 · 大节间 20 分（常见）</option>
+            <option value="45-10-20">45 分钟/节 · 节间 10 分 · 大节间 20 分</option>
+            <option value="45-10-10">45 分钟/节 · 节间 10 分 · 大节间 10 分</option>
+            <option value="40-10-10">40 分钟/节 · 节间 10 分 · 大节间 10 分</option>
+            <option value="50-10-20">50 分钟/节 · 节间 10 分 · 大节间 20 分</option>
             <option value="custom">自定义</option>
           </select>
         </div>
@@ -167,6 +168,11 @@
             <p class="q-hint">没有下午课可忽略。</p>
             <input type="time" id="afternoon-start" data-testid="afternoon-start" value="14:00">
           </div>
+          <div class="q">
+            <label for="evening-start">晚上第 1 节开始</label>
+            <p class="q-hint">没有晚课可忽略；晚课接着下午连排的学校，把时间清空即可。</p>
+            <input type="time" id="evening-start" data-testid="evening-start" value="19:00">
+          </div>
         </div>
 
         <div class="q-grid" id="custom-time-fields" hidden>
@@ -180,12 +186,24 @@
             </select>
           </div>
           <div class="q">
-            <label for="break-minutes">课间休息</label>
+            <label for="break-minutes">大节内节间休息</label>
+            <p class="q-hint">同一个大节里，第 1 节和第 2 节之间休息多久。</p>
             <select id="break-minutes" data-testid="break-minutes">
-              <option value="5">5 分钟</option>
-              <option value="10" selected>10 分钟</option>
+              <option value="0">不休息</option>
+              <option value="5" selected>5 分钟</option>
+              <option value="10">10 分钟</option>
               <option value="15">15 分钟</option>
               <option value="20">20 分钟</option>
+            </select>
+          </div>
+          <div class="q">
+            <label for="inter-break-minutes">大节之间课间</label>
+            <p class="q-hint">白天第 2→3 节、第 6→7 节之间较长的课间。晚课通常连续排，按上面的节间休息顺延。</p>
+            <select id="inter-break-minutes" data-testid="inter-break-minutes">
+              <option value="5">5 分钟</option>
+              <option value="10">10 分钟</option>
+              <option value="20" selected>20 分钟</option>
+              <option value="30">30 分钟</option>
             </select>
           </div>
         </div>

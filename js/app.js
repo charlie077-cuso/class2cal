@@ -33,8 +33,10 @@
       semesterStart: '',
       firstPeriodTime: '08:00',
       lessonMinutes: 45,
-      breakMinutes: 10,
+      breakMinutes: 5,
+      interBreakMinutes: 20,
       afternoonStart: '14:00',
+      eveningStart: '19:00',
       timeZone: 'Asia/Shanghai',
       reminderMinutes: 10,
       mode: 'recurring',
@@ -596,7 +598,11 @@
   function updatePresetUI() {
     var sel = $('#schedule-preset');
     if (!sel) return;
-    var key = (+state.options.lessonMinutes || 45) + '-' + (+state.options.breakMinutes || 10);
+    var intra = +state.options.breakMinutes;
+    if (isNaN(intra)) intra = 5;
+    var inter = +state.options.interBreakMinutes;
+    if (isNaN(inter)) inter = 20;
+    var key = (+state.options.lessonMinutes || 45) + '-' + intra + '-' + inter;
     var match = false;
     for (var i = 0; i < sel.options.length; i++) {
       if (sel.options[i].value === key) { sel.value = key; match = true; }
@@ -609,9 +615,11 @@
     var o = state.options;
     $('#semester-start').value = o.semesterStart || '';
     $('#first-period-time').value = o.firstPeriodTime || '08:00';
-    $('#afternoon-start').value = o.afternoonStart || '14:00';
+    $('#afternoon-start').value = o.afternoonStart || '';
+    $('#evening-start').value = o.eveningStart || '';
     $('#lesson-minutes').value = String(o.lessonMinutes || 45);
-    $('#break-minutes').value = String(o.breakMinutes || 10);
+    $('#break-minutes').value = String(isNaN(+o.breakMinutes) ? 5 : +o.breakMinutes);
+    $('#inter-break-minutes').value = String(isNaN(+o.interBreakMinutes) ? 20 : +o.interBreakMinutes);
     updatePresetUI();
   }
 
@@ -675,36 +683,52 @@
 
   function computeSlotTimes(preferFile) {
     var lesson = +state.options.lessonMinutes || 45;
-    var gap = +state.options.breakMinutes || 10;
+    var intra = +state.options.breakMinutes;
+    if (isNaN(intra)) intra = 5;
+    var inter = +state.options.interBreakMinutes;
+    if (isNaN(inter)) inter = 20;
+    var morning = toMinutes(state.options.firstPeriodTime);
+    if (morning == null) morning = 8 * 60;
     var afternoon = toMinutes(state.options.afternoonStart);
-    var cursor = toMinutes(state.options.firstPeriodTime);
-    if (cursor == null) cursor = 8 * 60;
+    var evening = toMinutes(state.options.eveningStart);
+    var cursor = null;
     var prevLast = 0;
+
+    function sectionOf(p) { return p <= 4 ? 'am' : (p <= 8 ? 'pm' : 'eve'); }
 
     state.slots.forEach(function (slot, i) {
       var periods = slot.periods || [];
       var count = Math.max(1, periods.length || 1);
       var firstPeriod = periods.length ? periods[0] : (i * 2 + 1);
+      var startMin = null;
 
-      // 上午 → 下午：从用户填写的「下午第 1 节开始」继续；没填则午休 2 小时兜底
-      if (firstPeriod >= 5 && prevLast > 0 && prevLast <= 4) {
-        if (afternoon != null) cursor = Math.max(cursor, afternoon);
-        else cursor += 120;
+      if (prevLast === 0) {
+        startMin = morning;
+      } else if (sectionOf(firstPeriod) !== sectionOf(prevLast)) {
+        // 上午→下午、下午→晚上：优先用用户填写的「第 1 节开始」
+        var section = sectionOf(firstPeriod);
+        if (section === 'pm') startMin = afternoon;
+        else if (section === 'eve') startMin = evening;
+        if (startMin == null) startMin = cursor == null ? morning : cursor + inter;
+      } else {
+        // 同段内下一大节：晚上通常连续排课（节间同短休息），白天则隔一个较长课间
+        var sameGap = sectionOf(firstPeriod) === 'eve' ? intra : inter;
+        startMin = cursor == null ? morning : cursor + sameGap;
       }
 
-      var startMin = cursor;
-      var endMin = startMin + count * lesson + (count - 1) * gap;
+      // 大节内：count 节课 + (count-1) 个节间休息；大节之间才用更长的 inter 课间
+      var endMin = startMin + count * lesson + (count - 1) * intra;
 
       if (preferFile && slot._fileStart) {
-        var fs = toMinutes(slot._fileStart);
-        if (fs != null) {
-          startMin = fs;
-          var fe = slot._fileEnd ? toMinutes(slot._fileEnd) : null;
-          endMin = fe != null ? fe : startMin + count * lesson + (count - 1) * gap;
+        var fsMin = toMinutes(slot._fileStart);
+        if (fsMin != null) {
+          startMin = fsMin;
+          var feMin = slot._fileEnd ? toMinutes(slot._fileEnd) : null;
+          endMin = feMin != null ? feMin : startMin + count * lesson + (count - 1) * intra;
         }
       }
 
-      cursor = endMin + gap;
+      cursor = endMin;
       prevLast = periods.length ? periods[periods.length - 1] : firstPeriod;
 
       if (!state.editedSlots[i]) {
@@ -1020,10 +1044,11 @@
       }
       saveSettings();
     });
-    ['first-period-time', 'afternoon-start'].forEach(function (id) {
+    ['first-period-time', 'afternoon-start', 'evening-start'].forEach(function (id) {
       $('#' + id).addEventListener('change', function () {
         if (id === 'first-period-time') state.options.firstPeriodTime = this.value;
-        else state.options.afternoonStart = this.value;
+        else if (id === 'afternoon-start') state.options.afternoonStart = this.value;
+        else state.options.eveningStart = this.value;
         state.editedSlots = {};
         computeSlotTimes(false);
         renderSlotTable();
@@ -1039,18 +1064,21 @@
       var p = v.split('-');
       state.options.lessonMinutes = +p[0];
       state.options.breakMinutes = +p[1];
+      state.options.interBreakMinutes = +p[2];
       $('#lesson-minutes').value = p[0];
       $('#break-minutes').value = p[1];
+      $('#inter-break-minutes').value = p[2];
       $('#custom-time-fields').hidden = true;
       state.editedSlots = {};
       computeSlotTimes(false);
       renderSlotTable();
       saveSettings();
     });
-    ['lesson-minutes', 'break-minutes'].forEach(function (id) {
+    ['lesson-minutes', 'break-minutes', 'inter-break-minutes'].forEach(function (id) {
       $('#' + id).addEventListener('change', function () {
         if (id === 'lesson-minutes') state.options.lessonMinutes = +this.value;
-        else state.options.breakMinutes = +this.value;
+        else if (id === 'break-minutes') state.options.breakMinutes = +this.value;
+        else state.options.interBreakMinutes = +this.value;
         updatePresetUI();
         state.editedSlots = {};
         computeSlotTimes(false);
