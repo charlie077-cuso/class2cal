@@ -135,8 +135,8 @@
     for (var i = 0; i < tokens.length; i++) {
       if (DAY_EN[tokens[i]]) return DAY_EN[tokens[i]];
     }
-    var m = /(?:星期|周|礼拜)\s*([一二三四五六日天])/.exec(s);
-    if (m) return DAY_WORDS[m[1]];
+    var m = /(?:星期|周|礼拜)\s*([一二三四五六日天1-7])/.exec(s);
+    if (m) return /[1-7]/.test(m[1]) ? +m[1] : DAY_WORDS[m[1]];
     if (/^[一二三四五六日天]$/.test(s)) return DAY_WORDS[s];
     // 表头用日期表示：2026-09-07 / 2026/9/7 / 2026.9.7；没有年份时用学年学期提示
     var dm = /^(\d{4})\s*[-\/.年]\s*(\d{1,2})\s*[-\/.月]\s*(\d{1,2})\s*日?$/.exec(s);
@@ -228,6 +228,12 @@
     if (m) {
       var a = cnToNumber(m[1]), b = cnToNumber(m[2]);
       if (a > 0 && b > 0) return uniqueSorted(rangeNumbers(a, b));
+    }
+    // 第1、2节 / 1,2节 / 第1，2节
+    var mlist = /(?:第)?\s*([0-9]{1,2}(?:\s*[、,，]\s*[0-9]{1,2})+)\s*节/.exec(s);
+    if (mlist) {
+      var nums = mlist[1].split(/[、,，]/).map(function (t) { return +trim(t); }).filter(function (n) { return n > 0 && n <= 20; });
+      if (nums.length) return uniqueSorted(nums);
     }
     // 第一大节 / 第1大节 / 大节一 → 每大节按 2 节算（[01-02]节、[03-04]节…）
     var mBig = /(?:第)?\s*([0-9一二三四五六七八九十]+)\s*大节/.exec(s);
@@ -359,6 +365,8 @@
   function parseCellBlocks(text) {
     var s = normalizeText(text);
     if (!s.trim()) return [];
+    // 部分系统用一行横线/等号分隔同一格里的多门课
+    s = s.replace(/\n[ \t]*[-=_*—－]{3,}[ \t]*\n/g, '\n\n');
     // 课程之间用空行分隔；先按空行切分，再清理
     var parts = s.split(/\n[ \t]*\n+/);
     if (parts.length === 1) {
@@ -407,15 +415,20 @@
       if (weekIdx === -1 && /周/.test(line) && /[0-9]/.test(line)) { weekIdx = i; out.weeksText = line; out.weeks = parseWeeks(line); continue; }
       if (/分组/.test(line)) { if (!out.note) out.note = line; }
     }
+    function isPeriodOnly(line) {
+      return /^\[?\s*\d{1,2}\s*[-~,，]\s*\d{1,2}\s*\]?\s*节?$/.test(trim(line)) ||
+        /^\[?\s*\d{1,2}\s*\]?\s*节$/.test(trim(line));
+    }
     if (weekIdx > 0) {
       // 教师：周次行之前、且不是分组备注的最后一行
       for (var j = weekIdx - 1; j >= 1; j--) {
         if (/^[（(]/.test(lines[j]) || /分组/.test(lines[j])) continue;
         if (looksLikeTeacher(lines[j]) || (lines[j] && !looksLikeLocation(lines[j]))) { out.teacher = lines[j]; break; }
       }
-      // 地点：周次行之后的第一行（或最后一行）
+      // 地点：周次行之后的第一行（跳过 [01-02]节 这类纯节次行）
       for (var k = weekIdx + 1; k < lines.length; k++) {
         if (/^[（(]/.test(lines[k])) continue;
+        if (isPeriodOnly(lines[k])) continue;
         out.location = lines[k];
         break;
       }
@@ -425,7 +438,9 @@
       if (lines.length >= 2 && !/^[（(]/.test(lines[1])) out.teacher = lines[1];
       if (lines.length >= 3 && looksLikeLocation(lines[lines.length - 1])) out.location = lines[lines.length - 1];
     }
-    out.name = out.name.replace(/^[\s·•]+/, '').trim();
+    out.name = out.name.replace(/^[■□◆◇●○★☆▶►▷·•\s\-—]+/, '').trim();
+    out.teacher = trim(String(out.teacher).replace(/^(任课教师|授课教师|教师|老师)\s*[：:]\s*/, ''));
+    out.location = trim(String(out.location).replace(/^(上课地点|地点|教室)\s*[：:]\s*/, '').replace(/\[?\s*\d{1,2}\s*[-~,，]\s*\d{1,2}\s*\]?\s*节\s*$/, ''));
     // 仅当括号内容是分组信息时才从课程名中拆出，避免拆坏「形势与政策(含军事理论)」这类名字
     var gm = /^([^（(]+)[（(]\s*(分组[^）)]*)[）)]\s*$/.exec(out.name);
     if (gm) { out.name = trim(gm[1]); if (!out.note) out.note = gm[2]; }
@@ -606,6 +621,136 @@
     };
   }
 
+  /* 周次作行标签：行 = 第X周，列 = 星期（每格是该周要上的课） */
+  function detectWeekRowColumn(matrix) {
+    var maxC = Math.min(matrix.reduce(function (m, row) { return Math.max(m, row ? row.length : 0); }, 0), 20);
+    var best = null;
+    for (var c = 0; c < maxC; c++) {
+      var hits = 0;
+      for (var r = 0; r < matrix.length && r < 60; r++) {
+        var txt = trim(cellAt(matrix, r, c));
+        if (!/周/.test(txt)) continue;
+        if (parseWeeks(txt).length === 1) hits++;
+      }
+      if (hits >= 3 && (!best || hits > best.hits)) best = { col: c, hits: hits };
+    }
+    return best;
+  }
+
+  function buildWeekRowResult(matrix, header, weekCol, options) {
+    var slots = [], slotMap = {}, courses = [], warnings = [], counter = 0;
+    var weekRowStart = -1;
+    for (var r = header.row + 1; r < matrix.length; r++) {
+      if (parseWeeks(cellAt(matrix, r, weekCol)).length === 1) { weekRowStart = r; break; }
+    }
+    if (weekRowStart < 0) return null;
+
+    for (var r2 = weekRowStart; r2 < matrix.length; r2++) {
+      var weekNum = parseWeeks(cellAt(matrix, r2, weekCol));
+      if (weekNum.length !== 1) continue;
+      for (var d = 1; d <= 7; d++) {
+        var col = header.weekdayCols[d];
+        if (col == null) continue;
+        var text = normalizeText(cellAt(matrix, r2, col));
+        if (!trim(text)) continue;
+        parseCellBlocks(text).forEach(function (block) {
+          var parsed = parseCourseBlock(block);
+          if (!parsed) return;
+          var periods = parsePeriods(block);
+          var label = '';
+          var lines = String(block).split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            if (parsePeriods(lines[i]).length) { label = trim(lines[i]).replace(/^\[|\]$/g, ''); break; }
+          }
+          if (!periods.length) {
+            warnings.push({ code: 'NO_PERIODS', message: '「' + parsed.name + '」第' + weekNum[0] + '周没有识别出节次，已跳过', detail: block });
+            return;
+          }
+          var slotKey = periods.join('-') + '@' + label;
+          var si = slotMap[slotKey];
+          if (si == null) {
+            si = slots.length;
+            slotMap[slotKey] = si;
+            slots.push({
+              index: si,
+              label: label || ('第' + periods[0] + '-' + periods[periods.length - 1] + '节'),
+              periods: periods.slice(),
+              start: null,
+              end: null,
+              raw: label
+            });
+          }
+          counter++;
+          courses.push({
+            id: 'c' + counter,
+            name: parsed.name,
+            teacher: parsed.teacher,
+            location: parsed.location,
+            weekday: d,
+            slotIndex: si,
+            slotEndIndex: si,
+            periodLabel: slots[si].label,
+            weeks: [weekNum[0]],
+            weeksText: '第' + weekNum[0] + '周',
+            note: parsed.note,
+            raw: block
+          });
+        });
+      }
+    }
+    if (!courses.length) return null;
+    slots.sort(function (a, b) { return a.periods[0] - b.periods[0]; });
+    var remap = {};
+    slots.forEach(function (s, i) { remap[s.index] = i; s.index = i; });
+    courses.forEach(function (c) { c.slotIndex = remap[c.slotIndex]; c.slotEndIndex = c.slotIndex; });
+    return {
+      sheetName: options.sheetName || '',
+      sheetNames: options.sheetNames || [],
+      meta: extractMeta(matrix, header.row),
+      slots: slots,
+      courses: courses,
+      warnings: warnings,
+      detected: { headerRow: header.row, weekdayCols: header.weekdayCols, periodCol: weekCol, slotsFound: slots.length, confidence: 0.6 },
+      stats: { courseCount: courses.length, slotCount: slots.length }
+    };
+  }
+
+  /* 暴力尝试「表头行 × 节次列」组合，抢救非常规布局 */
+  function tryGridCombos(matrix, merges, yearHint) {
+    var best = null;
+    var maxC = Math.min(matrix.reduce(function (m, row) { return Math.max(m, row ? row.length : 0); }, 0), 30);
+    var headerRows = [], slotCols = [];
+    for (var r = 0; r < matrix.length && r < 40; r++) {
+      var map = {}, count = 0, row = matrix[r] || [];
+      for (var c = 0; c < row.length; c++) {
+        var d = parseWeekdayCell(row[c], yearHint);
+        if (d && !map[d]) { map[d] = c; count++; }
+      }
+      if (count >= 2) headerRows.push({ row: r, weekdayCols: map, count: count });
+    }
+    for (var cc = 0; cc < maxC; cc++) {
+      var hits = 0;
+      for (var rr = 0; rr < matrix.length && rr < 80; rr++) {
+        if (isSlotLabel(cellAt(matrix, rr, cc))) hits++;
+      }
+      if (hits >= 2) slotCols.push({ col: cc, hits: hits });
+    }
+    headerRows.slice(0, 6).forEach(function (h) {
+      var dayCols = Object.keys(h.weekdayCols).map(function (k) { return h.weekdayCols[k]; });
+      slotCols.slice(0, 6).forEach(function (sc) {
+        if (dayCols.indexOf(sc.col) >= 0) return;
+        var ctx = { kind: 'grid', matrix: matrix, merges: merges, header: h, cols: { periodCol: sc.col, timeCol: -1 } };
+        var res;
+        try { res = buildResult(ctx, { sheetName: '', sheetNames: [] }); } catch (e) { return; }
+        if (!res || !res.courses.length) return;
+        var withWeeks = res.courses.filter(function (c) { return c.weeks.length; }).length;
+        var score = res.courses.length * 2 + withWeeks * 2 + res.slots.length;
+        if (!best || score > best.score) best = { score: score, result: res };
+      });
+    });
+    return best;
+  }
+
   function analyzeSheet(ws) {
     var sm = sheetMatrix(ws);
     var matrix = sm.matrix, merges = sm.merges;
@@ -631,12 +776,22 @@
       // 列表式课表：一行一门课
       var list = parseListSheet(matrix);
       if (list) return { ok: true, kind: 'list', list: list, meta: extractMeta(matrix, list.head.row) };
+      var cb0 = tryGridCombos(matrix, merges, yearHint);
+      if (cb0) return { ok: true, kind: 'result', result: cb0.result };
       return { ok: false, reason: 'no-header', matrix: matrix, merges: merges, header: null };
     }
     var cols = detectSlotColumn(matrix, header, merges);
     if (cols.periodCol < 0) {
+      // 周次作行标签的课表（行=第X周）
+      var wk = detectWeekRowColumn(matrix);
+      if (wk) {
+        var wr = buildWeekRowResult(matrix, header, wk.col, {});
+        if (wr) return { ok: true, kind: 'result', result: wr };
+      }
       var list2 = parseListSheet(matrix);
       if (list2) return { ok: true, kind: 'list', list: list2, meta: extractMeta(matrix, list2.head.row) };
+      var cb1 = tryGridCombos(matrix, merges, yearHint);
+      if (cb1) return { ok: true, kind: 'result', result: cb1.result };
       return { ok: false, reason: 'no-slot-column', matrix: matrix, merges: merges, header: header, cols: cols };
     }
     return { ok: true, kind: 'grid', matrix: matrix, merges: merges, header: header, cols: cols };
@@ -777,6 +932,10 @@
   function sheetScore(ws) {
     var analysis;
     try { analysis = analyzeSheet(ws); } catch (e) { return { score: -1, isTimetable: false, reason: 'error', headerRow: -1, weekdayCount: 0 }; }
+    if (analysis.kind === 'result') {
+      var rr = analysis.result;
+      return { score: 40 + Math.min(rr.courses.length, 15), isTimetable: rr.courses.length > 0, reason: 'recovered', headerRow: rr.detected ? rr.detected.headerRow : -1, weekdayCount: 7 };
+    }
     if (!analysis.ok || !analysis.header) {
       return { score: 0, isTimetable: false, reason: analysis.reason || (analysis.kind === 'list' ? 'list' : 'no-header'), headerRow: analysis.header ? analysis.header.row : -1, weekdayCount: analysis.header ? analysis.header.count : 0 };
     }
@@ -836,11 +995,22 @@
     if (!analysis.ok) {
       var why = analysis.reason === 'no-header'
         ? '没有找到星期表头（星期/周一/English weekday/日期均可），也不像列表式课表。'
-        : '没有找到节次列（如“0102节”“第1-2节”）。';
+        : '没有找到节次列（如“0102节”“第1-2节”“第一大节”）。';
       return noTimetableResult(sheetName, names, [{ code: 'NO_TIMETABLE', message: why, detail: analysis.reason }]);
     }
-    analysis.resultOptions = { sheetName: sheetName, sheetNames: names };
-    return buildResult(analysis, { sheetName: sheetName, sheetNames: names });
+    var result;
+    if (analysis.kind === 'result') {
+      result = analysis.result;
+    } else {
+      result = buildResult(analysis, { sheetName: sheetName, sheetNames: names });
+      if (!result.courses.length && analysis.matrix) {
+        var cb = tryGridCombos(analysis.matrix, analysis.merges, semesterYear(analysis.matrix));
+        if (cb && cb.result.courses.length) result = cb.result;
+      }
+    }
+    result.sheetName = sheetName;
+    result.sheetNames = names;
+    return result;
   }
 
   function defaultSlots(count) {

@@ -1,7 +1,7 @@
 /* 课表转日历 · Service Worker（离线可用） */
 'use strict';
 
-const CACHE = 'class2cal-v5';
+const CACHE = 'class2cal-v6';
 const ASSETS = [
   './',
   './index.html',
